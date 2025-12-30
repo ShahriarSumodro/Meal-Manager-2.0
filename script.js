@@ -1,13 +1,18 @@
-(function(){
+// ============================================
+// PART 1: CORE SETUP, DATA MANAGEMENT & LANDING PAGE
+// ============================================
 
+// Global variables - accessible throughout the app
 var SK = 'mealManager_accounts';
 var accounts = {};
 var currentId = null;
 var currentTab = 'chart';
 var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
 var app, modal;
 
+// ============================================
+// INITIALIZATION
+// ============================================
 function init() {
   app = document.getElementById('app');
   modal = document.getElementById('modal');
@@ -20,6 +25,9 @@ function init() {
   renderLanding();
 }
 
+// ============================================
+// DATA MANAGEMENT
+// ============================================
 function load() {
   try {
     var d = localStorage.getItem(SK);
@@ -38,7 +46,9 @@ function load() {
 function save() {
   try {
     localStorage.setItem(SK, JSON.stringify(accounts));
-  } catch(e) {}
+  } catch(e) {
+    console.error('Save failed:', e);
+  }
 }
 
 function showRecovery() {
@@ -50,6 +60,320 @@ function showRecovery() {
   }, 0);
 }
 
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+function closeModal() {
+  modal.classList.add('hidden');
+}
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+function now() {
+  var d = new Date();
+  return { m: d.getMonth() + 1, y: d.getFullYear(), d: d.getDate() };
+}
+
+function daysInMonth(m, y) {
+  return new Date(y, m, 0).getDate();
+}
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function todayStr() {
+  var d = new Date();
+  var mm = String(d.getMonth() + 1);
+  if (mm.length < 2) mm = '0' + mm;
+  var dd = String(d.getDate());
+  if (dd.length < 2) dd = '0' + dd;
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+
+function getCurrent() {
+  var n = now();
+  for (var id in accounts) {
+    if (accounts.hasOwnProperty(id)) {
+      var a = accounts[id];
+      if (a.month === n.m && a.year === n.y) return a;
+    }
+  }
+  return null;
+}
+
+function getHistory() {
+  var n = now();
+  var list = [];
+  for (var id in accounts) {
+    if (accounts.hasOwnProperty(id)) {
+      var a = accounts[id];
+      if (a.year < n.y || (a.year === n.y && a.month < n.m)) {
+        list.push(a);
+      }
+    }
+  }
+  list.sort(function(x, y) {
+    return (y.year * 12 + y.month) - (x.year * 12 + x.month);
+  });
+  return list;
+}
+
+function getMostRecentPast() {
+  var hist = getHistory();
+  return hist.length ? hist[0] : null;
+}
+
+// ============================================
+// LANDING PAGE
+// ============================================
+function renderLanding() {
+  currentId = null;
+  currentTab = 'chart';
+  var cur = getCurrent();
+  
+  var html = '<div class="landing">' +
+    '<button id="curBtn"' + (cur ? '' : ' disabled') + '>' + (cur ? 'Current Account' : 'No current month — Create') + '</button>' +
+    '<button id="histBtn">History</button>' +
+    '<button id="createBtn">Create</button>' +
+    '<button class="help-t" id="helpBtn">Help</button>' +
+    '<div id="helpC" class="help-c hidden">' +
+      '<h4>Getting Started</h4>' +
+      '<p>Create a new account for each month. One account can be "current" (matches device month/year).</p>' +
+      '<h4>Meal Chart</h4>' +
+      '<p>Tap any cell to enter day/night meals. Values can be 0, 0.25, 0.5, etc.</p>' +
+      '<h4>Profile</h4>' +
+      '<p>View each person\'s meals, deposits, extras. Add deposits and extras with dates.</p>' +
+      '<h4>Expenses</h4>' +
+      '<p>Track all mess expenses by category and date.</p>' +
+      '<h4>Review</h4>' +
+      '<p>See final calculations. Meal Rate = Total Expense / Total Meals. Person Cost = (Meals × Rate) + Extras. Transaction = Deposit - Cost.</p>' +
+      '<h4>Export</h4>' +
+      '<p>Print Review or Meal Chart as PDF. Export JSON for backup.</p>' +
+      '<h4>Reset App</h4>' +
+      '<p>Use this if data is corrupted. All data will be lost.</p>' +
+      '<button class="btn-d" id="resetAppBtn" style="margin-top:12px">Reset App</button>' +
+    '</div>' +
+  '</div>';
+  
+  app.innerHTML = html;
+  
+  setTimeout(function() {
+    var curBtn = document.getElementById('curBtn');
+    if (cur && curBtn) {
+      curBtn.addEventListener('click', function() {
+        currentId = cur.id;
+        renderAccount();
+      });
+    }
+    
+    var histBtn = document.getElementById('histBtn');
+    if (histBtn) histBtn.addEventListener('click', renderHistory);
+    
+    var createBtn = document.getElementById('createBtn');
+    if (createBtn) createBtn.addEventListener('click', showCreateModal);
+    
+    var helpOpen = false;
+    var helpBtn = document.getElementById('helpBtn');
+    var helpC = document.getElementById('helpC');
+    if (helpBtn && helpC) {
+      helpBtn.addEventListener('click', function() {
+        helpOpen = !helpOpen;
+        if (helpOpen) {
+          helpC.classList.remove('hidden');
+          helpBtn.textContent = 'Close Help';
+        } else {
+          helpC.classList.add('hidden');
+          helpBtn.textContent = 'Help';
+        }
+      });
+    }
+    
+    var resetBtn = document.getElementById('resetAppBtn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function() {
+        if (confirm('Delete ALL data?')) {
+          localStorage.removeItem(SK);
+          location.reload();
+        }
+      });
+    }
+  }, 0);
+}
+
+// ============================================
+// CREATE ACCOUNT MODAL
+// ============================================
+function showCreateModal() {
+  var n = now();
+  var past = getMostRecentPast();
+  var mOpts = '';
+  for (var i = 1; i <= n.m; i++) {
+    mOpts += '<option value="' + i + '"' + (i === n.m ? ' selected' : '') + '>' + months[i - 1] + '</option>';
+  }
+  
+  var copyHtml = '';
+  if (past) {
+    copyHtml = '<div class="field cb-w"><input type="checkbox" id="copyNamesChk"><label for="copyNamesChk">Copy names from ' + months[past.month - 1] + ' ' + past.year + '</label></div>';
+  }
+  
+  modal.innerHTML = '<div class="modal-c">' +
+    '<h3>Create Account</h3>' +
+    '<div class="field"><label>Manager Name *</label><input id="mgrIn" placeholder="Enter name"></div>' +
+    '<div class="field"><label>Month</label><select id="monthIn">' + mOpts + '</select></div>' +
+    '<div class="field"><label>Year</label><input id="yearIn" type="number" value="' + n.y + '" min="2000" max="' + n.y + '"></div>' +
+    copyHtml +
+    '<div class="btns"><button class="btn-s" id="createCancelBtn">Cancel</button><button id="createConfBtn">Create</button></div>' +
+  '</div>';
+  
+  modal.classList.remove('hidden');
+  
+  setTimeout(function() {
+    var cancelBtn = document.getElementById('createCancelBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    
+    var confBtn = document.getElementById('createConfBtn');
+    if (confBtn) {
+      confBtn.addEventListener('click', function() {
+        var mgrIn = document.getElementById('mgrIn');
+        var monthIn = document.getElementById('monthIn');
+        var yearIn = document.getElementById('yearIn');
+        var copyChk = document.getElementById('copyNamesChk');
+        
+        var mgr = mgrIn ? mgrIn.value.trim() : '';
+        var m = monthIn ? parseInt(monthIn.value) : 0;
+        var y = yearIn ? parseInt(yearIn.value) : 0;
+        
+        if (!mgr) {
+          alert('Manager name required');
+          return;
+        }
+        if (isNaN(m) || m < 1 || m > 12 || isNaN(y) || y < 2000 || y > n.y) {
+          alert('Invalid month/year');
+          return;
+        }
+        if (y === n.y && m > n.m) {
+          alert('Cannot create future month');
+          return;
+        }
+        
+        for (var id in accounts) {
+          if (accounts.hasOwnProperty(id)) {
+            if (accounts[id].month === m && accounts[id].year === y) {
+              alert('Account for this month already exists');
+              return;
+            }
+          }
+        }
+        
+        var copyNames = past && copyChk && copyChk.checked;
+        
+        var acc = {
+          id: uid(),
+          managerName: mgr,
+          month: m,
+          year: y,
+          createdAt: Date.now(),
+          names: [],
+          meals: {},
+          deposits: {},
+          extras: {},
+          expenses: [],
+          settlements: {}
+        };
+        
+        if (copyNames && past && past.names && past.names.length) {
+          for (var j = 0; j < past.names.length; j++) {
+            var newId = uid();
+            acc.names.push({ id: newId, name: past.names[j].name });
+            acc.deposits[newId] = [];
+            acc.extras[newId] = [];
+          }
+        }
+        
+        accounts[acc.id] = acc;
+        save();
+        closeModal();
+        currentId = acc.id;
+        if (m === n.m && y === n.y) {
+          renderAccount();
+        } else {
+          renderLanding();
+        }
+      });
+    }
+  }, 0);
+}
+
+// ============================================
+// HISTORY VIEW
+// ============================================
+function renderHistory() {
+  var list = getHistory();
+  
+  app.innerHTML = '<div class="hdr"><button class="btn-s" id="backBtn">← Back</button><h2>History</h2></div>' +
+    '<div class="tab-c" id="histList"></div>';
+  
+  setTimeout(function() {
+    var backBtn = document.getElementById('backBtn');
+    if (backBtn) backBtn.addEventListener('click', renderLanding);
+    
+    var histList = document.getElementById('histList');
+    if (!list.length) {
+      histList.innerHTML = '<div class="empty">No past accounts</div>';
+      return;
+    }
+    
+    var h = '';
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      h += '<div class="hist-card">' +
+        '<div class="info"><div class="month">' + months[a.month - 1] + ' ' + a.year + '</div><div class="mgr">' + a.managerName + '</div></div>' +
+        '<button class="btn-s hist-open" data-id="' + a.id + '">Open</button>' +
+        '<button class="btn-d hist-del" data-del="' + a.id + '">Delete</button>' +
+      '</div>';
+    }
+    histList.innerHTML = h;
+    
+    var openBtns = document.querySelectorAll('.hist-open');
+    for (var j = 0; j < openBtns.length; j++) {
+      openBtns[j].addEventListener('click', function() {
+        currentId = this.getAttribute('data-id');
+        renderAccount();
+      });
+    }
+    
+    var delBtns = document.querySelectorAll('.hist-del');
+    for (var k = 0; k < delBtns.length; k++) {
+      delBtns[k].addEventListener('click', function() {
+        var delId = this.getAttribute('data-del');
+        if (confirm('Delete this account?')) {
+          delete accounts[delId];
+          save();
+          renderHistory();
+        }
+      });
+    }
+  }, 0);
+}
+
+// ============================================
+// INITIALIZE ON PAGE LOAD
+// ============================================
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+// ============================================
+// PART 2: ACCOUNT VIEW, CHART, PROFILE & EXPENSE TABS
+// ============================================
+
+// ============================================
+// ACCOUNT VIEW & TAB SYSTEM
+// ============================================
 function renderAccount() {
   var a = accounts[currentId];
   if (!a) {
@@ -111,6 +435,9 @@ function renderTabContent() {
   }
 }
 
+// ============================================
+// CHART TAB - MEAL GRID
+// ============================================
 function renderChart(tc) {
   var a = accounts[currentId];
   if (!a) return;
@@ -220,6 +547,9 @@ function showMealModal(nid, day) {
   }, 0);
 }
 
+// ============================================
+// CALCULATIONS
+// ============================================
 function calcAll() {
   var a = accounts[currentId];
   if (!a) return { totalMeals: 0, totalCost: 0, rate: 0, persons: {} };
@@ -288,6 +618,9 @@ function calcAll() {
   return { totalMeals: totalMeals, totalCost: totalCost, rate: rate, persons: persons };
 }
 
+// ============================================
+// PROFILE TAB
+// ============================================
 function renderProfile(tc) {
   var a = accounts[currentId];
   if (!a) return;
@@ -613,6 +946,9 @@ function showExtraModal(nid, idx) {
   }, 0);
 }
 
+// ============================================
+// EXPENSE TAB
+// ============================================
 function renderExpense(tc) {
   var a = accounts[currentId];
   if (!a) return;
@@ -730,7 +1066,13 @@ function showExpenseModal(idx) {
     }
   }, 0);
 }
+// ============================================
+// PART 3: REVIEW TAB, PRINT & EXPORT
+// ============================================
 
+// ============================================
+// REVIEW TAB
+// ============================================
 function renderReview(tc) {
   var a = accounts[currentId];
   if (!a) return;
@@ -805,6 +1147,9 @@ function renderReview(tc) {
   }, 0);
 }
 
+// ============================================
+// PRINT CHART FUNCTION
+// ============================================
 function printChart() {
   var a = accounts[currentId];
   if (!a) return;
@@ -832,6 +1177,9 @@ function printChart() {
   w.document.close();
 }
 
+// ============================================
+// EXPORT JSON FUNCTION
+// ============================================
 function exportJson() {
   var a = accounts[currentId];
   if (!a) return;
@@ -843,299 +1191,4 @@ function exportJson() {
   link.download = 'meal_' + months[a.month - 1] + '_' + a.year + '.json';
   link.click();
   URL.revokeObjectURL(url);
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
-
-})();
-
-function closeModal() {
-  modal.classList.add('hidden');
-}
-
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-}
-
-function now() {
-  var d = new Date();
-  return { m: d.getMonth() + 1, y: d.getFullYear(), d: d.getDate() };
-}
-
-function daysInMonth(m, y) {
-  return new Date(y, m, 0).getDate();
-}
-
-function round2(n) {
-  return Math.round(n * 100) / 100;
-}
-
-function todayStr() {
-  var d = new Date();
-  var mm = String(d.getMonth() + 1);
-  if (mm.length < 2) mm = '0' + mm;
-  var dd = String(d.getDate());
-  if (dd.length < 2) dd = '0' + dd;
-  return d.getFullYear() + '-' + mm + '-' + dd;
-}
-
-function getCurrent() {
-  var n = now();
-  for (var id in accounts) {
-    if (accounts.hasOwnProperty(id)) {
-      var a = accounts[id];
-      if (a.month === n.m && a.year === n.y) return a;
-    }
-  }
-  return null;
-}
-
-function getHistory() {
-  var n = now();
-  var list = [];
-  for (var id in accounts) {
-    if (accounts.hasOwnProperty(id)) {
-      var a = accounts[id];
-      if (a.year < n.y || (a.year === n.y && a.month < n.m)) {
-        list.push(a);
-      }
-    }
-  }
-  list.sort(function(x, y) {
-    return (y.year * 12 + y.month) - (x.year * 12 + x.month);
-  });
-  return list;
-}
-
-function getMostRecentPast() {
-  var hist = getHistory();
-  return hist.length ? hist[0] : null;
-}
-
-function renderLanding() {
-  currentId = null;
-  currentTab = 'chart';
-  var cur = getCurrent();
-  
-  var html = '<div class="landing">' +
-    '<button id="curBtn"' + (cur ? '' : ' disabled') + '>' + (cur ? 'Current Account' : 'No current month — Create') + '</button>' +
-    '<button id="histBtn">History</button>' +
-    '<button id="createBtn">Create</button>' +
-    '<button class="help-t" id="helpBtn">Help</button>' +
-    '<div id="helpC" class="help-c hidden">' +
-      '<h4>Getting Started</h4>' +
-      '<p>Create a new account for each month. One account can be "current" (matches device month/year).</p>' +
-      '<h4>Meal Chart</h4>' +
-      '<p>Tap any cell to enter day/night meals. Values can be 0, 0.25, 0.5, etc.</p>' +
-      '<h4>Profile</h4>' +
-      '<p>View each person\'s meals, deposits, extras. Add deposits and extras with dates.</p>' +
-      '<h4>Expenses</h4>' +
-      '<p>Track all mess expenses by category and date.</p>' +
-      '<h4>Review</h4>' +
-      '<p>See final calculations. Meal Rate = Total Expense / Total Meals. Person Cost = (Meals × Rate) + Extras. Transaction = Deposit - Cost.</p>' +
-      '<h4>Export</h4>' +
-      '<p>Print Review or Meal Chart as PDF. Export JSON for backup.</p>' +
-      '<h4>Reset App</h4>' +
-      '<p>Use this if data is corrupted. All data will be lost.</p>' +
-      '<button class="btn-d" id="resetAppBtn" style="margin-top:12px">Reset App</button>' +
-    '</div>' +
-  '</div>';
-  
-  app.innerHTML = html;
-  
-  setTimeout(function() {
-    var curBtn = document.getElementById('curBtn');
-    if (cur && curBtn) {
-      curBtn.addEventListener('click', function() {
-        currentId = cur.id;
-        renderAccount();
-      });
-    }
-    
-    var histBtn = document.getElementById('histBtn');
-    if (histBtn) histBtn.addEventListener('click', renderHistory);
-    
-    var createBtn = document.getElementById('createBtn');
-    if (createBtn) createBtn.addEventListener('click', showCreateModal);
-    
-    var helpOpen = false;
-    var helpBtn = document.getElementById('helpBtn');
-    var helpC = document.getElementById('helpC');
-    if (helpBtn && helpC) {
-      helpBtn.addEventListener('click', function() {
-        helpOpen = !helpOpen;
-        if (helpOpen) {
-          helpC.classList.remove('hidden');
-          helpBtn.textContent = 'Close Help';
-        } else {
-          helpC.classList.add('hidden');
-          helpBtn.textContent = 'Help';
-        }
-      });
-    }
-    
-    var resetBtn = document.getElementById('resetAppBtn');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', function() {
-        if (confirm('Delete ALL data?')) {
-          localStorage.removeItem(SK);
-          location.reload();
-        }
-      });
-    }
-  }, 0);
-}
-
-function showCreateModal() {
-  var n = now();
-  var past = getMostRecentPast();
-  var mOpts = '';
-  for (var i = 1; i <= n.m; i++) {
-    mOpts += '<option value="' + i + '"' + (i === n.m ? ' selected' : '') + '>' + months[i - 1] + '</option>';
-  }
-  
-  var copyHtml = '';
-  if (past) {
-    copyHtml = '<div class="field cb-w"><input type="checkbox" id="copyNamesChk"><label for="copyNamesChk">Copy names from ' + months[past.month - 1] + ' ' + past.year + '</label></div>';
-  }
-  
-  modal.innerHTML = '<div class="modal-c">' +
-    '<h3>Create Account</h3>' +
-    '<div class="field"><label>Manager Name *</label><input id="mgrIn" placeholder="Enter name"></div>' +
-    '<div class="field"><label>Month</label><select id="monthIn">' + mOpts + '</select></div>' +
-    '<div class="field"><label>Year</label><input id="yearIn" type="number" value="' + n.y + '" min="2000" max="' + n.y + '"></div>' +
-    copyHtml +
-    '<div class="btns"><button class="btn-s" id="createCancelBtn">Cancel</button><button id="createConfBtn">Create</button></div>' +
-  '</div>';
-  
-  modal.classList.remove('hidden');
-  
-  setTimeout(function() {
-    var cancelBtn = document.getElementById('createCancelBtn');
-    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-    
-    var confBtn = document.getElementById('createConfBtn');
-    if (confBtn) {
-      confBtn.addEventListener('click', function() {
-        var mgrIn = document.getElementById('mgrIn');
-        var monthIn = document.getElementById('monthIn');
-        var yearIn = document.getElementById('yearIn');
-        var copyChk = document.getElementById('copyNamesChk');
-        
-        var mgr = mgrIn ? mgrIn.value.trim() : '';
-        var m = monthIn ? parseInt(monthIn.value) : 0;
-        var y = yearIn ? parseInt(yearIn.value) : 0;
-        
-        if (!mgr) {
-          alert('Manager name required');
-          return;
-        }
-        if (isNaN(m) || m < 1 || m > 12 || isNaN(y) || y < 2000 || y > n.y) {
-          alert('Invalid month/year');
-          return;
-        }
-        if (y === n.y && m > n.m) {
-          alert('Cannot create future month');
-          return;
-        }
-        
-        for (var id in accounts) {
-          if (accounts.hasOwnProperty(id)) {
-            if (accounts[id].month === m && accounts[id].year === y) {
-              alert('Account for this month already exists');
-              return;
-            }
-          }
-        }
-        
-        var copyNames = past && copyChk && copyChk.checked;
-        
-        var acc = {
-          id: uid(),
-          managerName: mgr,
-          month: m,
-          year: y,
-          createdAt: Date.now(),
-          names: [],
-          meals: {},
-          deposits: {},
-          extras: {},
-          expenses: [],
-          settlements: {}
-        };
-        
-        if (copyNames && past && past.names && past.names.length) {
-          for (var j = 0; j < past.names.length; j++) {
-            var newId = uid();
-            acc.names.push({ id: newId, name: past.names[j].name });
-            acc.deposits[newId] = [];
-            acc.extras[newId] = [];
-          }
-        }
-        
-        accounts[acc.id] = acc;
-        save();
-        closeModal();
-        currentId = acc.id;
-        if (m === n.m && y === n.y) {
-          renderAccount();
-        } else {
-          renderLanding();
-        }
-      });
-    }
-  }, 0);
-}
-
-function renderHistory() {
-  var list = getHistory();
-  
-  app.innerHTML = '<div class="hdr"><button class="btn-s" id="backBtn">← Back</button><h2>History</h2></div>' +
-    '<div class="tab-c" id="histList"></div>';
-  
-  setTimeout(function() {
-    var backBtn = document.getElementById('backBtn');
-    if (backBtn) backBtn.addEventListener('click', renderLanding);
-    
-    var histList = document.getElementById('histList');
-    if (!list.length) {
-      histList.innerHTML = '<div class="empty">No past accounts</div>';
-      return;
-    }
-    
-    var h = '';
-    for (var i = 0; i < list.length; i++) {
-      var a = list[i];
-      h += '<div class="hist-card">' +
-        '<div class="info"><div class="month">' + months[a.month - 1] + ' ' + a.year + '</div><div class="mgr">' + a.managerName + '</div></div>' +
-        '<button class="btn-s hist-open" data-id="' + a.id + '">Open</button>' +
-        '<button class="btn-d hist-del" data-del="' + a.id + '">Delete</button>' +
-      '</div>';
-    }
-    histList.innerHTML = h;
-    
-    var openBtns = document.querySelectorAll('.hist-open');
-    for (var j = 0; j < openBtns.length; j++) {
-      openBtns[j].addEventListener('click', function() {
-        currentId = this.getAttribute('data-id');
-        renderAccount();
-      });
-    }
-    
-    var delBtns = document.querySelectorAll('.hist-del');
-    for (var k = 0; k < delBtns.length; k++) {
-      delBtns[k].addEventListener('click', function() {
-        var delId = this.getAttribute('data-del');
-        if (confirm('Delete this account?')) {
-          delete accounts[delId];
-          save();
-          renderHistory();
-        }
-      });
-    }
-  }, 0);
 }
